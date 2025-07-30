@@ -1,0 +1,49 @@
+{
+    "plugins": [
+        {
+            "file_path": "PluginMastodon",
+            "plugin_type": "comms",
+            "file_type": "shared_library",
+            "node_type": "any",
+            "shared_library_path": "libPluginMastodon.so",
+            "channels": [],
+            "transports": ["mastodonPublicStatus"],
+            "usermodels": [],
+            "encodings": []
+        }
+    ],
+    "channel_properties":{
+        "mastodonCompositionFile": {
+            "channelGid": "mastodonCompositionFile",
+            "connectionType": "CT_INDIRECT",
+            "linkDirection": "LD_BIDI",
+            "transmissionType": "TT_MULTICAST"
+        },
+        "mastodonComposition": {
+            "channelGid": "mastodonComposition",
+            "connectionType": "CT_INDIRECT",
+            "linkDirection": "LD_BIDI",
+            "transmissionType": "TT_MULTICAST"
+        }        
+    },
+    "channel_parameters": [
+      {
+          "key": "env",
+          "required": false
+      }
+    ],
+    "compositions": [
+        {
+            "id": "mastodonComposition",
+            "transport": "mastodonPublicStatus",
+            "usermodel": "rapidUser",
+            "encodings": ["base64"]
+        },
+        {
+            "id": "mastodonCompositionFile",
+            "transport": "mastodonPublicStatus",
+            "usermodel": "twoSixFileBasedUserModel",
+            "encodings": ["base64"]
+        }
+    ]
+}
