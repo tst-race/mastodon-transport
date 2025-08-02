@@ -68,6 +68,7 @@ private:
     CURL* curl;
 
     void initCurl();
+    void setCommonCurlOptions(CURL* curl, const std::string& url, const std::string& logPrefix);
+    struct curl_slist* createAuthHeader(); // Create Authorization header
     std::vector<uint8_t> downloadImage(const std::string& imageUrl);
-    std::string base64Encode(const std::vector<uint8_t>& data);
-};
+ };

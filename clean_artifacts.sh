@@ -81,10 +81,7 @@ fi
 
 
 formatlog "INFO" "Removing previous build artifacts"
-rm -rf ${CURRENT_DIR}/build/*
+find ${CURRENT_DIR}/build/  -mindepth 2 -maxdepth 2 -type d -name "_deps" -prune -o -exec rm -rf {} +
 
-formatlog "INFO" "Cleaning artifacts in the plugin dir"
-rm -rf ${CURRENT_DIR}/plugin/artifacts/*
-
-formatlog "INFO" "Cleaning server config-gen util in the plugin dir"
-rm -rf ${CURRENT_DIR}/plugin/channels/obfs/libRacebirdConfig.so
+formatlog "INFO" "Cleaning kits"
+rm -rf ${CURRENT_DIR}/kit

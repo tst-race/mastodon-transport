@@ -17,7 +17,7 @@
 
 #include "log.h"
 
-static const std::string pluginNameForLogging = "PluginCommsTwoSixDecomposedCpp";
+static const std::string pluginNameForLogging = "PluginMastodon";
 
 void logDebug(const std::string &message) {
     RaceLog::logDebug(pluginNameForLogging, message, "");

@@ -70,7 +70,8 @@ FetchContent_MakeAvailable(nlohmann_json)
 # Fetch Gumbo HTML parser
 FetchContent_Declare(
   libxml2
-  GIT_REPOSITORY https://gitlab.gnome.org/GNOME/libxml2.git
+  # GIT_REPOSITORY https://gitlab.gnome.org/GNOME/libxml2.git
+  GIT_REPOSITORY https://github.com/GNOME/libxml2.git # Use github mirror
   GIT_TAG v2.11.5 # Use the latest stable release or a specific version
 )
 set(LIBXML2_WITH_PYTHON OFF CACHE BOOL "Disable Python bindings")

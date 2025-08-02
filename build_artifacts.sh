@@ -155,7 +155,7 @@ then
     cmake --preset=LINUX_x86_64 -Wno-dev \
         -DBUILD_VERSION="${RACE_VERSION}-${PLUGIN_REVISION}"
     # This will copy the output to plugin/artifacts/linux-x86_64-[client|server]
-    cmake -S . -B build
+    cmake -S . -B build -DBUILD_VERSION="${RACE_VERSION}-${PLUGIN_REVISION}"
     cmake --build --preset=LINUX_x86_64 $CMAKE_ARGS
 
     # formatlog "INFO" "Building Android x86_64 Client"

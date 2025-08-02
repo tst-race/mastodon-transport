@@ -16,8 +16,83 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
     return totalSize;
 }
 
+// Callback function to write binary data
+static size_t WriteBinaryCallback(void* contents, size_t size, size_t nmemb, std::vector<uint8_t>* data) {
+    size_t totalSize = size * nmemb;
+    
+    if (!contents || !data) {
+        return 0; // Signal an error to libcurl
+    }
+    
+    try {
+        // Reserve additional space if needed
+        if (data->capacity() < data->size() + totalSize) {
+            data->reserve(data->size() + totalSize + 4096); // Reserve extra space
+        }
+        
+        // Use push_back in a loop instead of insert with iterators
+        const uint8_t* byteData = static_cast<const uint8_t*>(contents);
+        for (size_t i = 0; i < totalSize; ++i) {
+            data->push_back(byteData[i]);
+        }
+    } catch (const std::exception& e) {
+        // Log error if logging is available
+        return 0; // Signal an error to libcurl
+    }
+    
+    return totalSize;
+}
+
+// Debug callback function
+static int CurlDebugCallback(CURL* handle, curl_infotype type, char* data, size_t size, void* userptr) {
+    // Cast userptr to the logging prefix or context (if needed)
+    std::string* logPrefix = static_cast<std::string*>(userptr);
+
+    // Process the debug information based on its type
+    switch (type) {
+        case CURLINFO_TEXT:
+            logDebug(*logPrefix + "CURL INFO: " + std::string(data, size));
+            break;
+        case CURLINFO_HEADER_IN:
+            logDebug(*logPrefix + "CURL HEADER IN: " + std::string(data, size));
+            break;
+        case CURLINFO_HEADER_OUT:
+            logDebug(*logPrefix + "CURL HEADER OUT: " + std::string(data, size));
+            break;
+        case CURLINFO_DATA_IN:
+            logDebug(*logPrefix + "CURL DATA IN: " + std::to_string(size) + " bytes");
+            break;
+        case CURLINFO_DATA_OUT:
+            logDebug(*logPrefix + "CURL DATA OUT: " + std::to_string(size) + " bytes");
+            break;
+        default:
+            break;
+    }
+
+    return 0; // Returning 0 indicates success
+}
+
+// Configure CURL to use the debug callback
+void configureCurlDebug(CURL* curl, const std::string& logPrefix) {
+    // Enable verbose mode
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+    // Set the debug callback function
+    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, CurlDebugCallback);
+
+    // Pass the log prefix or context to the callback
+    curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &logPrefix);
+
+    // Redirect default verbose output to /dev/null to suppress it
+    FILE* devNull = fopen("/dev/null", "w");
+    if (devNull) {
+        curl_easy_setopt(curl, CURLOPT_STDERR, devNull);
+    }
+}
+
 MastodonClient::MastodonClient(const std::string& server, const std::string& accessToken)
-    : serverUrl(server), accessToken(accessToken), curl(curl_easy_init()) {
+    : serverUrl(server), accessToken(accessToken) {
+    curl = curl_easy_init();
     if (!curl) {
         throw std::runtime_error("Failed to initialize CURL");
     }
@@ -35,34 +110,48 @@ void MastodonClient::initCurl() {
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     // curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt"); // Set CA certificate path
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); // Enable verbose logging
+    // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); // Enable verbose logging
+}
+
+void MastodonClient::setCommonCurlOptions(CURL* curl, const std::string& url, const std::string& logPrefix) {
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // 30-second timeout
+    configureCurlDebug(curl, logPrefix); // Set debug callback
 }
 
 bool MastodonClient::postStatus(const std::string& content, const std::string& hashtag) {
     std::string url = serverUrl + "/api/v1/statuses";
     std::string body = "status=" + content + " " + hashtag + "&visibility=public";
 
-    // Create the Authorization header
-    std::string authHeader = "Authorization: Bearer " + accessToken;
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, authHeader.c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    CURL* postCurl = curl_easy_init();
+    if (!postCurl) {
+        logError("MastodonClient::postStatus: Failed to initialize CURL");
+        return false;
+    }
 
-    // Set CURL options
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+    setCommonCurlOptions(postCurl, url, "MastodonClient::postStatus: ");
+
+    // Add Authorization and Content-Type headers
+    struct curl_slist* headers = createAuthHeader();
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    curl_easy_setopt(postCurl, CURLOPT_HTTPHEADER, headers);
+
+    // Set POST options
+    curl_easy_setopt(postCurl, CURLOPT_POST, 1L);
+    curl_easy_setopt(postCurl, CURLOPT_POSTFIELDS, body.c_str());
 
     // Perform the request
-    CURLcode res = curl_easy_perform(curl);
+    CURLcode res = curl_easy_perform(postCurl);
 
-    // Clean up headers
+    // Clean up
     curl_slist_free_all(headers);
+    curl_easy_cleanup(postCurl);
 
     if (res != CURLE_OK) {
-        std::cerr << "CURL error: " << curl_easy_strerror(res) << std::endl;
+        logError("MastodonClient::postStatus: CURL error: " + std::string(curl_easy_strerror(res)));
         return false;
     }
 
@@ -70,90 +159,63 @@ bool MastodonClient::postStatus(const std::string& content, const std::string& h
 }
 
 bool MastodonClient::postImage(const std::vector<uint8_t>& imageData, const std::string& hashtag) {
-    // First, upload the media to get a media ID
     std::string mediaUrl = serverUrl + "/api/v1/media";
     std::string mediaId;
-    
-    // Create multipart form data for image upload
-    curl_mime *mime = curl_mime_init(curl);
-    curl_mimepart *part = curl_mime_addpart(mime);
-    
-    // Set the image data
+
+    CURL* postCurl = curl_easy_init();
+    if (!postCurl) {
+        logError("MastodonClient::postImage: Failed to initialize CURL");
+        return false;
+    }
+
+    setCommonCurlOptions(postCurl, mediaUrl, "MastodonClient::postImage: ");
+
+    // Create multipart form data
+    curl_mime* mime = curl_mime_init(postCurl);
+    curl_mimepart* part = curl_mime_addpart(mime);
     curl_mime_data(part, reinterpret_cast<const char*>(imageData.data()), imageData.size());
     curl_mime_name(part, "file");
     curl_mime_filename(part, "image.jpg");
     curl_mime_type(part, "image/jpeg");
-    
-    // Authorization header for media upload
-    std::string authHeader = "Authorization: Bearer " + accessToken;
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, authHeader.c_str());
-    
-    // Capture media upload response
+
+    // Add Authorization header
+    struct curl_slist* headers = createAuthHeader();
+    curl_easy_setopt(postCurl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(postCurl, CURLOPT_MIMEPOST, mime);
+
+    // Perform the request
     std::string mediaResponse;
-    curl_easy_setopt(curl, CURLOPT_URL, mediaUrl.c_str());
-    curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mediaResponse);
-    
-    CURLcode res = curl_easy_perform(curl);
-    
-    // Clean up mime and headers
+    curl_easy_setopt(postCurl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(postCurl, CURLOPT_WRITEDATA, &mediaResponse);
+
+    CURLcode res = curl_easy_perform(postCurl);
+
+    // Clean up
     curl_mime_free(mime);
     curl_slist_free_all(headers);
-    
+    curl_easy_cleanup(postCurl);
+
     if (res != CURLE_OK) {
-        std::cerr << "CURL error during media upload: " << curl_easy_strerror(res) << std::endl;
+        logError("MastodonClient::postImage: CURL error: " + std::string(curl_easy_strerror(res)));
         return false;
     }
-    
+
     // Parse media response to get media ID
     try {
         auto mediaJson = nlohmann::json::parse(mediaResponse);
         if (mediaJson.contains("id")) {
             mediaId = mediaJson["id"].get<std::string>();
         } else {
-            std::cerr << "Media upload failed: no ID in response" << std::endl;
+            logError("MastodonClient::postImage: Media upload failed: no ID in response");
             return false;
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error parsing media upload response: " << e.what() << std::endl;
+        logError("MastodonClient::postImage: Error parsing media response: " + std::string(e.what()));
         return false;
     }
-    
-    // Now create a status with the media attachment
-    std::string statusUrl = serverUrl + "/api/v1/statuses";
-    std::string statusBody = "status=" + hashtag + "&visibility=public&media_ids[]=" + mediaId;
-    
-    // Create headers for status post
-    headers = nullptr;
-    headers = curl_slist_append(headers, authHeader.c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-    
-    // Reset curl options for status post
-    curl_easy_reset(curl);
-    curl_easy_setopt(curl, CURLOPT_URL, statusUrl.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, statusBody.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
-    
-    // Perform the status post request
-    res = curl_easy_perform(curl);
-    
-    // Clean up headers
-    curl_slist_free_all(headers);
-    
-    // Reinitialize curl for future use
-    initCurl();
-    
-    if (res != CURLE_OK) {
-        std::cerr << "CURL error during status post: " << curl_easy_strerror(res) << std::endl;
-        return false;
-    }
-    
-    return true;
+
+    // Use mediaId to post the status (similar to postStatus)
+    return postStatus("#" + hashtag, mediaId);
 }
 
 bool MastodonClient::postImageWithText(const std::vector<uint8_t>& imageData, const std::string& text, const std::string& hashtag) {
@@ -316,23 +378,28 @@ std::vector<MastodonContent> MastodonClient::searchStatuses(const std::string& h
 
     // Parse the JSON response
     try {
+        logDebug("MastodonClient::searchStatuses: parsing response");
+
         auto jsonResponse = nlohmann::json::parse(responseString);
 
         // Extract statuses from the JSON response
         if (jsonResponse.contains("statuses")) {
             for (const auto& status : jsonResponse["statuses"]) {
-                
+                 logDebug("MastodonClient::searchStatuses: parsing status");
+
                 // Check if this status has media attachments (images)
                 if (status.contains("media_attachments") && 
                     status["media_attachments"].is_array() && 
                     !status["media_attachments"].empty()) {
                     
+                    logDebug("MastodonClient::searchStatuses: has attachment");
                     // Process media attachments
                     for (const auto& media : status["media_attachments"]) {
                         if (media.contains("type") && media["type"].get<std::string>() == "image") {
                             if (media.contains("url")) {
                                 std::string imageUrl = media["url"].get<std::string>();
-                                
+                                logDebug("MastodonClient::searchStatuses: caling downlaod for url: " + imageUrl);
+                    
                                 // Download the image
                                 std::vector<uint8_t> imageData = downloadImage(imageUrl);
                                 if (!imageData.empty()) {
@@ -382,57 +449,40 @@ std::vector<MastodonContent> MastodonClient::searchStatuses(const std::string& h
 
 std::vector<uint8_t> MastodonClient::downloadImage(const std::string& imageUrl) {
     std::vector<uint8_t> imageData;
-    
-    // Create a new CURL handle for image download
+    logDebug("MastodonClient::downloadImage: called: " + imageUrl);
+
     CURL* imgCurl = curl_easy_init();
-    if (!imgCurl) {
-        std::cerr << "Failed to initialize CURL for image download" << std::endl;
-        return imageData;
+    if (imgCurl) {
+        std::string logPrefix = "MastodonClient::downloadImage: ";
+        setCommonCurlOptions(imgCurl, imageUrl, logPrefix);
+
+        // Set binary write callback
+        curl_easy_setopt(imgCurl, CURLOPT_WRITEFUNCTION, WriteBinaryCallback);
+        curl_easy_setopt(imgCurl, CURLOPT_WRITEDATA, &imageData);
+
+        // Add Authorization header
+        struct curl_slist* headers = createAuthHeader();
+        curl_easy_setopt(imgCurl, CURLOPT_HTTPHEADER, headers);
+
+        // Perform the request
+        logDebug("MastodonClient::downloadImage: performing curl");
+        CURLcode res = curl_easy_perform(imgCurl);
+
+        // Clean up
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(imgCurl);
+
+        if (res != CURLE_OK) {
+            logError("MastodonClient::downloadImage: CURL error: " + std::string(curl_easy_strerror(res)));
+        }
     }
-    
-    // Set up curl for binary data download
-    curl_easy_setopt(imgCurl, CURLOPT_URL, imageUrl.c_str());
-    curl_easy_setopt(imgCurl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(imgCurl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::vector<uint8_t>* data) -> size_t {
-        size_t totalSize = size * nmemb;
-        data->insert(data->end(), static_cast<uint8_t*>(contents), static_cast<uint8_t*>(contents) + totalSize);
-        return totalSize;
-    });
-    curl_easy_setopt(imgCurl, CURLOPT_WRITEDATA, &imageData);
-    curl_easy_setopt(imgCurl, CURLOPT_TIMEOUT, 30L); // 30 second timeout
-    
-    CURLcode res = curl_easy_perform(imgCurl);
-    curl_easy_cleanup(imgCurl);
-    
-    if (res != CURLE_OK) {
-        std::cerr << "CURL error during image download: " << curl_easy_strerror(res) << std::endl;
-        imageData.clear();
-    }
-    
+
     return imageData;
 }
 
-std::string MastodonClient::base64Encode(const std::vector<uint8_t>& data) {
-    static const std::string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string result;
-    int val = 0, valb = -6;
-    
-    for (unsigned char c : data) {
-        val = (val << 8) + c;
-        valb += 8;
-        while (valb >= 0) {
-            result.push_back(chars[(val >> valb) & 0x3F]);
-            valb -= 6;
-        }
-    }
-    
-    if (valb > -6) {
-        result.push_back(chars[((val << 8) >> (valb + 8)) & 0x3F]);
-    }
-    
-    while (result.size() % 4) {
-        result.push_back('=');
-    }
-    
-    return result;
+struct curl_slist* MastodonClient::createAuthHeader() {
+    std::string authHeader = "Authorization: Bearer " + accessToken;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, authHeader.c_str());
+    return headers;
 }
