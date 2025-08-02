@@ -215,7 +215,42 @@ bool MastodonClient::postImage(const std::vector<uint8_t>& imageData, const std:
     }
 
     // Use mediaId to post the status (similar to postStatus)
-    return postStatus("#" + hashtag, mediaId);
+    
+    // return postStatus("#" + hashtag, mediaId);
+
+    std::string statusUrl = serverUrl + "/api/v1/statuses";
+    std::string statusBody = "status=" + hashtag + "&visibility=public&media_ids[]=" + mediaId;    
+
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        logError("MastodonClient::postStatus: Failed to initialize CURL");
+        return false;
+    }
+
+    setCommonCurlOptions(curl, statusUrl, "MastodonClient::postStatus: ");
+
+    // Add Authorization and Content-Type headers
+    struct curl_slist* statusHeaders = createAuthHeader();
+    statusHeaders = curl_slist_append(statusHeaders, "Content-Type: application/x-www-form-urlencoded");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, statusHeaders);
+
+    // Set POST options
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, statusBody.c_str());
+
+    // Perform the request
+    CURLcode statusRes = curl_easy_perform(curl);
+
+    // Clean up
+    curl_slist_free_all(statusHeaders);
+    curl_easy_cleanup(curl);
+
+    if (statusRes != CURLE_OK) {
+        logError("MastodonClient::postStatus: CURL error: " + std::string(curl_easy_strerror(statusRes)));
+        return false;
+    }
+
+    return true;
 }
 
 bool MastodonClient::postImageWithText(const std::vector<uint8_t>& imageData, const std::string& text, const std::string& hashtag) {
