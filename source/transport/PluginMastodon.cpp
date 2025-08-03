@@ -276,7 +276,7 @@ ComponentStatus PluginMastodon::createLink(RaceHandle handle, const LinkID &link
     }
 
     LinkAddress address;
-    address.hashtag = "cpp_" + racePersona + "_" + std::to_string(nextAvailableHashTag++);
+    address.hashtag = "pqrstuv" + std::to_string(nextAvailableHashTag++);
     std::chrono::duration<double> sinceEpoch = std::chrono::high_resolution_clock::now().time_since_epoch();
     address.timestamp = sinceEpoch.count();
 

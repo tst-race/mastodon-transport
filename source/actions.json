@@ -1,0 +1,6 @@
+[
+    {"timestamp": 5.0, "relative": true, "json": {"linkId": "*", "type": "fetch"}},
+    {"timestamp": 8.0, "relative": true, "json": {"linkId": "*", "type": "post", "contentType": "image"}},
+    {"timestamp": 15.0, "relative": true, "json": {"linkId": "*", "type": "fetch"}},
+    {"timestamp": 18.0, "relative": true, "json": {"linkId": "*", "type": "post", "contentType": "text"}}
+]   

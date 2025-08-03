@@ -37,13 +37,13 @@
             "id": "mastodonComposition",
             "transport": "mastodonPublicStatus",
             "usermodel": "rapidUser",
-            "encodings": ["base64"]
+            "encodings": ["base64", "SRICLIEncoding"]
         },
         {
             "id": "mastodonCompositionFile",
             "transport": "mastodonPublicStatus",
             "usermodel": "twoSixFileBasedUserModel",
-            "encodings": ["base64"]
+            "encodings": ["base64", "SRICLIEncoding"]
         }
     ]
 }
