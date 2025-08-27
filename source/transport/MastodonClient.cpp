@@ -216,8 +216,6 @@ bool MastodonClient::postImage(const std::vector<uint8_t>& imageData, const std:
 
     // Use mediaId to post the status (similar to postStatus)
     
-    // return postStatus("#" + hashtag, mediaId);
-
     std::string statusUrl = serverUrl + "/api/v1/statuses";
     std::string statusBody = "status=" + hashtag + "&visibility=public&media_ids[]=" + mediaId;    
 
@@ -378,7 +376,7 @@ std::vector<MastodonContent> MastodonClient::searchStatuses(const std::string& h
     }
 
     // Construct the URL with the encoded hashtag
-    std::string url = serverUrl + "/api/v2/search?q=" + encodedHashtag + "&type=statuses&resolve=true";
+    std::string url = serverUrl + "/api/v1/timelines/tag/" + encodedHashtag + "?limit=20&local=true";
     logDebug("MastodonClient::searchStatuses: Searching for hashtag: " + url);
 
     // Free the encoded string after use
@@ -418,62 +416,69 @@ std::vector<MastodonContent> MastodonClient::searchStatuses(const std::string& h
         auto jsonResponse = nlohmann::json::parse(responseString);
 
         // Extract statuses from the JSON response
-        if (jsonResponse.contains("statuses")) {
-            for (const auto& status : jsonResponse["statuses"]) {
-                 logDebug("MastodonClient::searchStatuses: parsing status");
+        for (const auto& status : jsonResponse) {
+            logDebug("MastodonClient::searchStatuses: parsing status");
 
-                // Check if this status has media attachments (images)
-                if (status.contains("media_attachments") && 
-                    status["media_attachments"].is_array() && 
-                    !status["media_attachments"].empty()) {
+            // Check if this status has media attachments (images)
+            if (status.contains("media_attachments") && 
+                status["media_attachments"].is_array() && 
+                !status["media_attachments"].empty()) {
                     
-                    logDebug("MastodonClient::searchStatuses: has attachment");
-                    // Process media attachments
-                    for (const auto& media : status["media_attachments"]) {
-                        if (media.contains("type") && media["type"].get<std::string>() == "image") {
-                            if (media.contains("url")) {
-                                std::string imageUrl = media["url"].get<std::string>();
-                                logDebug("MastodonClient::searchStatuses: caling downlaod for url: " + imageUrl);
+                logDebug("MastodonClient::searchStatuses: has attachment");
+                // Process media attachments
+                for (const auto& media : status["media_attachments"]) {
+                    if (media.contains("type") && media["type"].get<std::string>() == "image") {
+                        if (media.contains("url")) {
+                            std::string imageUrl = media["url"].get<std::string>();
+                            logDebug("MastodonClient::searchStatuses: caling downlaod for url: " + imageUrl);
                     
-                                // Download the image
-                                std::vector<uint8_t> imageData = downloadImage(imageUrl);
-                                if (!imageData.empty()) {
-                                    // Store image data directly as raw bytes
-                                    MastodonContent content;
-                                    content.contentType = "image/jpeg";
-                                    content.data = std::move(imageData);
-                                    results.push_back(content);
-                                    logDebug("MastodonClient::searchStatuses: Downloaded image, size: " + std::to_string(content.data.size()));
+                            // Download the image
+                            std::vector<uint8_t> imageData = downloadImage(imageUrl);
+                            if (!imageData.empty()) {
+                                // Store image data directly as raw bytes
+                                MastodonContent content;
+                                content.contentType = "image/jpeg";
+                                content.data = std::move(imageData);
+                                if (seenPostsByHashtag.find(hashtag) != seenPostsByHashtag.end()) {
+                                    if (seenPostsByHashtag[hashtag].find(status["id"]) != seenPostsByHashtag[hashtag].end()) {
+                                        logDebug("MastodonClient::searchStatuses: skipping decoding image for because it was already seen");
+                                        continue;
+                                    } else {
+                                      std::set<std::string> newSet;
+                                      newSet.insert(status["id"]);
+                                        seenPostsByHashtag[hashtag] = newSet;
+                                    }
                                 }
+                                results.push_back(content);
+                                seenPostsByHashtag[hashtag].insert(status["id"]);
+                                logDebug("MastodonClient::searchStatuses: Downloaded image, size: " + std::to_string(content.data.size()));
                             }
                         }
                     }
                 }
+            }
                 
-                // Also process text content if available
-                if (status.contains("content")) {
-                    std::string rawContent = status["content"].get<std::string>();
+            // Also process text content if available
+            if (status.contains("content")) {
+                std::string rawContent = status["content"].get<std::string>();
 
-                    // Strip HTML tags using libxml2
-                    std::string plainTextContent = stripHtmlWithLibxml2(rawContent);
+                // Strip HTML tags using libxml2
+                std::string plainTextContent = stripHtmlWithLibxml2(rawContent);
 
-                    // Remove the hashtag from text content
-                    size_t pos = plainTextContent.find(" " + hashtag);
-                    if (pos != std::string::npos) {
-                        plainTextContent = plainTextContent.substr(0, pos);
-                    }
+                // Remove the hashtag from text content
+                size_t pos = plainTextContent.find(" " + hashtag);
+                if (pos != std::string::npos) {
+                    plainTextContent = plainTextContent.substr(0, pos);
+                }
 
-                    // Only add non-empty text content
-                    if (!plainTextContent.empty() && plainTextContent != hashtag) {
-                        MastodonContent content;
-                        content.contentType = "text/plain";
-                        content.data = std::vector<uint8_t>(plainTextContent.begin(), plainTextContent.end());
-                        results.push_back(content);
-                    }
+                // Only add non-empty text content
+                if (!plainTextContent.empty() && plainTextContent != hashtag) {
+                    MastodonContent content;
+                    content.contentType = "text/plain";
+                    content.data = std::vector<uint8_t>(plainTextContent.begin(), plainTextContent.end());
+                    results.push_back(content);
                 }
             }
-        } else {
-            std::cerr << "Error: 'statuses' field not found in the response." << std::endl;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error parsing JSON response: " << e.what() << std::endl;

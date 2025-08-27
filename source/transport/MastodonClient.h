@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <curl/curl.h>
+#include <map>
+#include <set>
 
 /**
  * @brief Structure to hold content with its MIME type
@@ -66,6 +68,7 @@ private:
     std::string serverUrl;
     std::string accessToken;
     CURL* curl;
+    std::map<std::string, std::set<std::string>> seenPostsByHashtag;
 
     void initCurl();
     void setCommonCurlOptions(CURL* curl, const std::string& url, const std::string& logPrefix);
