@@ -526,7 +526,18 @@ ComponentStatus PluginMastodon::enqueueContent(
         auto actionJson = nlohmann::json::parse(action.json);
         ActionJson actionParams = actionJson;
 
-        actionToLinkIdMap[action.actionId] = params.linkId;
+        LinkID linkId = params.linkId;
+        // Special case: we have "background" content that has no data, so we do not care which link we send it on
+        if (params.linkId == "") {
+                    logDebug(logPrefix + "Link ID is empty for POST action. Using first available link.");
+                    if (links.size() == 0) {
+                        logError(logPrefix + "No links available to enqueue content. Doing nothing.");
+                        return COMPONENT_ERROR;
+                    }
+                    auto firstLink = links.getMap().begin()->second;
+                    linkId = firstLink->getId();
+        }
+        actionToLinkIdMap[action.actionId] = linkId;
         
         // Store content type information for this action
         contentTypeMap[action.actionId] = params.type;
@@ -538,8 +549,8 @@ ComponentStatus PluginMastodon::enqueueContent(
                 return COMPONENT_OK;
 
             case ACTION_POST:
-                logDebug(logPrefix + "Action type is POST. Enqueuing content for link ID: " + params.linkId);
-                return links.get(params.linkId)->enqueueContent(action.actionId, content, params.type);
+                logDebug(logPrefix + "Action type is POST. Enqueuing content for link ID: " + linkId);
+                return links.get(linkId)->enqueueContent(action.actionId, content, params.type);
 
             default:
                 logError(logPrefix + "Unrecognized action type: " + nlohmann::json(actionParams.type).dump());
