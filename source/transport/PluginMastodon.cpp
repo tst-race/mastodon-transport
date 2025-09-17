@@ -138,7 +138,8 @@ TransportProperties PluginMastodon::getTransportProperties() {
     return {
         // supportedActions
         {
-            {"post", {"*/*"}},
+            {"post", {"image/jpeg"}},
+            {"post", {"text/plain"}},
             {"fetch", {}},
         },
     };
