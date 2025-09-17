@@ -443,11 +443,11 @@ std::vector<MastodonContent> MastodonClient::searchStatuses(const std::string& h
                                     if (seenPostsByHashtag[hashtag].find(status["id"]) != seenPostsByHashtag[hashtag].end()) {
                                         logDebug("MastodonClient::searchStatuses: skipping decoding image for because it was already seen");
                                         continue;
-                                    } else {
-                                      std::set<std::string> newSet;
-                                      newSet.insert(status["id"]);
-                                        seenPostsByHashtag[hashtag] = newSet;
                                     }
+                                } else {
+                                    std::set<std::string> newSet;
+                                    newSet.insert(status["id"]);
+                                    seenPostsByHashtag[hashtag] = newSet;
                                 }
                                 results.push_back(content);
                                 seenPostsByHashtag[hashtag].insert(status["id"]);
